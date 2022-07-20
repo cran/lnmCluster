@@ -1,0 +1,146 @@
+---
+title: "lnmCluster"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{lnmCluster}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+Welcome to use package lnmCluster. It is a package designed for applying logistic Normal Multinomial Cluster algorithm. Assumptions and model interpretations could be found in paper: XX and YY. The model coding is a little different compare to the paper. Here we use 3 positions to represent the constrains on parameter _B_, _T_, and _D_ sequentially and respectively. U stands for unconstrian(same as paper), G stands for group constrain, D stands for diagonal constrain, and C stands for both group and diagonal(i.e. CUUU=GUU, CUCC=GUC, CUUC=GUD, CUCU=GUG.....). 
+
+# Main functions
+Functions are coded for easy read and easy understand.
+* lnmbiclust
+* lnmfa
+* plnmfa
+
+
+1 _lnmbiclust_ is the main function that perform our algorithm, which includes default initial values, main estimations as well as model selection. For illustration, we will generate a simulation data from model "GUU" as follows:
+```{r,eval=FALSE}
+set.seed(123)
+n <- 40
+simp <- rmultinom(n,1,c(0.6,0.4))
+lab <- as.factor(apply(t(simp),1,which.max))
+
+
+#parameter comes from multinomial
+p <- 11
+mu1 <- c(-2.8,-1.3,-1.6,-3.9,-2.6,-2.9,-2.5,-2.7,-3.1,-2.9)
+B1 <- matrix(c(1,0,0,1,0,0,0,0,0,0,0,1,1,0,1,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0),nrow = p-1)
+T1 <- diag(c(2.9,0.5,1))
+D1 <- diag(c(0.52, 1.53, 0.56, 0.19, 1.32, 1.77, 0.6, 0.53, 0.37, 0.4))
+cov1 <- B1%*%T1%*%t(B1)+D1
+
+mu2 <- c(1.5,-2.7,-1.1,-0.4,-1.4,-2.6,-3,-3.9,-2.7,-3)
+B2 <- matrix(c(1,0,0,1,0,0,0,0,0,0,0,1,1,0,1,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0),nrow = p-1)
+T2 <- diag(c(0.2,0.003,0.15))
+D2 <- diag(c(0.01, 0.62, 0.45, 0.01, 0.37, 0.42, 0.08, 0.16, 0.23, 0.27))
+cov2 <- B2%*%T2%*%t(B2)+D2
+
+df <- matrix(0,nrow=n,ncol=p-1)
+for (i in 1:n) {
+  if(lab[i]==1){df[i,] <- rmvnorm(1,mu1,sigma = cov1)}
+  else if(lab[i]==2){df[i,] <- rmvnorm(1,mu2,sigma = cov2)}
+}
+
+
+
+f_df <- cbind(df,0)
+z <- exp(f_df)/rowSums(exp(f_df))
+
+
+W_count <- matrix(0,nrow=n,ncol=p)
+for (i in 1:n) {
+  W_count[i,] <- rmultinom(1,runif(1,10000,20000),z[i,])
+
+}
+
+```
+After generated data, we can strat to try to fit one model: 
+```{r,eval=FALSE}
+range_G <- 2 #define the number of components
+range_Q <- 2 #define the possible number of bicluster.
+cov_str <- "GUU" #select the model you want to fit
+#It will fit GUU model with G=2, Q=c(2,2)
+res <- lnmbiclust(W_count=W_count, range_G=range_G, range_Q=range_Q, model=cov_str) 
+#where res will be a list contain all parameters. 
+
+```
+Notice the default setting is to run all 16 models if parameter _model_ is missing. There are 3 criteria you can choose: AIC, BIC(default) and ICL. 
+
+If you don't want to fit a model with specific _G_ or _Q_, the function can do model selection based on criteria you choose. The output will contain two lists in _res_, one is the paramters of the best model selected by BIC(AIC or ICL), the other one is a dataframe of model names along with AIC, BIC and ICL values for all models that have ran. 
+```{r,eval=FALSE}
+range_G <- c(2:3)
+range_Q <- c(2:3)
+cov_str <- c("UUU", "GGC")
+res <- lnmbiclust(W_count=W_count, range_G=range_G, range_Q=range_Q, model=cov_str, criteria="BIC")
+best_model=res$best_model
+
+```
+it will run G=2, Q_g=c(2,2); G=3, Q_g=c(2,2,2); G=2, Q_g=c(3,3);G=3, Q_g=c(3,3,3). In total 4 models for each UUU and GGC, then select the best one based on BIC. If you want to include permutations in UUU, UUG, UUD or UUC:
+```{r,eval=FALSE}
+range_G <- 2
+range_Q <- c(2:3)
+cov_str <- "UUU"
+res <- lnmbiclust(W_count=W_count, range_G=range_G, range_Q=range_Q, model=cov_str, criteria="BIC",permutation=TRUE)
+res$best_model
+
+```
+it will run G=2, Q_g=c(2,2); G=2, Q_g=c(3,3); G=2, Q_g=c(2,3);G=2, Q_g=c(3,2). In total 4 models for UUU.  
+
+Sometimes you may want to know more detail about models that ran. For example, if the BIC values are very close between two models, then they may equally good. Only choose the best one with highest BIC is not fair. Here we have output _all_fitted_model_ under _lnmbiclust_, which gives the output of all models you have ran and model selection criteria. 
+```{r,eval=FALSE}
+res$all_fitted_model
+
+```
+It will return a dataframe with all combinations of G and Q for all models you have included, decreasing ordered as the criteria you specified, default is ordered by BIC.  
+
+
+2 _lnmfa_ The usage is exactly the same as _lnmbiclust_. Except it doesn't have parameter permutation. The only difference would be the model name. Since in this model, the _T_ is fix as identity matrix, the middle position will also fixed as U. So all the 8 models will be: UUU, UUG, UUD, UUC, GUU, GUG, GUD, GUC.
+```{r,eval=FALSE}
+range_G <- c(2:3)
+range_Q <- c(2:3)
+cov_str <- c("UUU", "GUC")
+res <- lnmfa(W_count=W_count, range_G=range_G, range_Q=range_Q, model=cov_str, criteria="BIC")
+best_model=res$best_model
+model_output=res$all_fitted_model
+
+```
+
+3 _plnmfa_ The usage is exactly the same as _lnmfa_, with additional tunning parameters. In here, _range_Q_ need to be specified by a number instead of a range. The _range_tuning_ could be a range of number which is between 0 and 1. And it doesn't allow model selections between the two model, so you have to specify the model name between UUU and GUU.
+```{r,eval=FALSE}
+range_G <- c(2:3)
+range_tunning=seq(0.5,0.7,length.out=10)
+range_Q <- 2
+cov_str <- "UUU"
+res <- plnmfa(W_count=W_count, range_G=range_G, range_Q=range_Q, model=cov_str, criteria="BIC",
+              range_tuning = range_tuning)
+best_model=res$best_model
+model_output=res$all_fitted_model
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
